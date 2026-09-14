@@ -22,7 +22,7 @@ func requestLogger(logger *log.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			next.ServeHTTP(w, r)
-			logger.Printf("Wake up babe, a new %s request to %s just dropped", r.Method, r.URL.Path)
+			logger.Printf("Served request: %s %s", r.Method, r.URL.Path)
 		})
 	}
 }
@@ -32,7 +32,7 @@ func newServer(store store.Store, port int, cancel context.CancelFunc) *server {
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: requestLogger(logger)(mux),
+		Handler: requestLogger(Logger)(mux),
 	}
 
 	s := &server{
