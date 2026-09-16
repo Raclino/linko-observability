@@ -26,14 +26,16 @@ func main() {
 }
 
 func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir string) int {
-	logger, closeFunc, err := helpers.InitializeLogger()
+	logger, closeLogger, err := helpers.InitializeLogger()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
 		return 1
 	}
 	defer func() {
 		logger.Println("Linko is shutting down")
-		closeFunc()
+		if err := closeLogger(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to close logger: %v\n", err)
+		}
 	}()
 
 	logger.Printf("Linko is running on http://localhost:%d", httpPort)
