@@ -3,7 +3,6 @@ package helpers
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 )
@@ -12,35 +11,50 @@ import (
 // before the program exits, and must not log through the logger afterwards.
 type closeFunc func() error
 
-// InitializeLogger returns a logger writing to STDERR, and additionally to the
-// file named by LINKO_LOG_FILE when that variable is set.
+// InitializeLogger returns a logger writing everything from DEBUG up to STDERR,
+// and, when logFile is set, INFO and above to that file as well.
 //
-// Writes to the file go through a buffer, so the returned CloseFunc must be
+// Writes to the file go through a buffer, so the returned closeFunc must be
 // called before exiting: pending log lines are lost otherwise. The file itself
 // stays open for the lifetime of the process, since the logger writes to it on
 // every request.
 func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
-	if logFile != "" {
-		file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open log file: %w", err)
-		}
-		bufferedFile := bufio.NewWriterSize(file, 8192)
-		multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
-		close := func() error {
-			if err := bufferedFile.Flush(); err != nil {
-				return fmt.Errorf("failed to flush log file: %w", err)
-			}
-			if err := file.Close(); err != nil {
-				return fmt.Errorf("failed to close log file: %w", err)
-			}
-			return nil
-		}
+	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
 
-		return slog.New(slog.NewTextHandler(multiWriter, nil)), close, nil
+	if logFile == "" {
+		// Nothing to release: STDERR is unbuffered, and closing it would break
+		// whatever else the process writes there.
+		noop := func() error { return nil }
+		return slog.New(stderrHandler), noop, nil
 	}
-	close := func() error {
+
+	file, err := os.OpenFile(logFile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	bufferedFile := bufio.NewWriterSize(file, 8192)
+	fileHandler := slog.NewTextHandler(bufferedFile, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+
+	logger := slog.New(slog.NewMultiHandler(
+		stderrHandler,
+		fileHandler,
+	))
+
+	closeLogger := func() error {
+		if err := bufferedFile.Flush(); err != nil {
+			file.Close()
+			return fmt.Errorf("failed to flush log file: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return fmt.Errorf("failed to close log file: %w", err)
+		}
 		return nil
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, nil)), close, nil
+
+	return logger, closeLogger, nil
 }
