@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -45,13 +46,13 @@ func (s *server) handlerShortenLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing url parameter", http.StatusBadRequest)
 		return
 	}
-	s.logger.Info(fmt.Sprintf("Shortening URL: %s", longURL))
+	s.logger.Info("Shortening URL", slog.String("longUrl", longURL))
 	u, err := url.Parse(longURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		http.Error(w, "invalid URL: must include scheme (http/https) and host", http.StatusBadRequest)
 		return
 	}
-	s.logger.Info(fmt.Sprintf("Parsed URL: scheme=%s, host=%s\n", u.Scheme, u.Host))
+	s.logger.Info("Parsed URL", slog.String("scheme", u.Scheme), slog.String("host", u.Host))
 	if err := checkDestination(longURL); err != nil {
 		http.Error(w, fmt.Sprintf("invalid target URL: %v", err), http.StatusBadRequest)
 		return
@@ -61,7 +62,7 @@ func (s *server) handlerShortenLink(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to shorten URL", http.StatusInternalServerError)
 		return
 	}
-	s.logger.Info(fmt.Sprintf("Generated short code: %s for URL: %s", shortCode, longURL))
+	s.logger.Info("Generated short code for URL", slog.String("shortCode", shortCode), slog.String("longURL", longURL))
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusCreated)
 	io.WriteString(w, shortCode)
