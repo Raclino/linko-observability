@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -18,6 +19,13 @@ type stackTracer interface {
 	StackTrace() pkgerr.StackTrace
 }
 
+func handlerOptions(level slog.Level) *slog.HandlerOptions {
+	return &slog.HandlerOptions{
+		Level:       level,
+		ReplaceAttr: replaceAttr,
+	}
+}
+
 // InitializeLogger returns a logger writing everything from DEBUG up to STDERR,
 // and, when logFile is set, INFO and above to that file as well.
 //
@@ -26,10 +34,7 @@ type stackTracer interface {
 // stays open for the lifetime of the process, since the logger writes to it on
 // every request.
 func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
-	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level:       slog.LevelDebug,
-		ReplaceAttr: replaceAttr,
-	})
+	stderrHandler := slog.NewTextHandler(os.Stderr, handlerOptions(slog.LevelDebug))
 
 	if logFile == "" {
 		// Nothing to release: STDERR is unbuffered, and closing it would break
@@ -44,9 +49,7 @@ func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	}
 
 	bufferedFile := bufio.NewWriterSize(file, 8192)
-	fileHandler := slog.NewJSONHandler(bufferedFile, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	})
+	fileHandler := slog.NewJSONHandler(bufferedFile, handlerOptions(slog.LevelInfo))
 
 	logger := slog.New(slog.NewMultiHandler(
 		stderrHandler,
@@ -68,12 +71,19 @@ func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 }
 
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
-	if a.Key == "error" {
-		err, ok := a.Value.Any().(error)
-		if !ok {
-			return a
-		}
-		return slog.String("error", fmt.Sprintf("%+v", err))
+	if a.Key != "error" {
+		return a
 	}
-	return a
+	err, ok := a.Value.Any().(error)
+	if !ok {
+		return a
+	}
+	stackErr, ok := errors.AsType[stackTracer](err)
+	if !ok {
+		return a
+	}
+	return slog.GroupAttrs("error",
+		slog.String("message", stackErr.Error()),
+		slog.String("stack_trace", fmt.Sprintf("%+v", stackErr.StackTrace())),
+	)
 }
