@@ -5,11 +5,18 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+
+	pkgerr "github.com/pkg/errors"
 )
 
 // closeFunc releases the resources held by a logger. Callers must invoke it
 // before the program exits, and must not log through the logger afterwards.
 type closeFunc func() error
+
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
+}
 
 // InitializeLogger returns a logger writing everything from DEBUG up to STDERR,
 // and, when logFile is set, INFO and above to that file as well.
@@ -20,7 +27,8 @@ type closeFunc func() error
 // every request.
 func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	stderrHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
+		Level:       slog.LevelDebug,
+		ReplaceAttr: replaceAttr,
 	})
 
 	if logFile == "" {
@@ -57,4 +65,15 @@ func InitializeLogger(logFile string) (*slog.Logger, closeFunc, error) {
 	}
 
 	return logger, closeLogger, nil
+}
+
+func replaceAttr(groups []string, a slog.Attr) slog.Attr {
+	if a.Key == "error" {
+		err, ok := a.Value.Any().(error)
+		if !ok {
+			return a
+		}
+		return slog.String("error", fmt.Sprintf("%+v", err))
+	}
+	return a
 }
